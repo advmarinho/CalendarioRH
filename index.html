@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Calendário Operacional RH Sonova</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Barra flutuante para sair do modo impressão (fica visível quando os controles somem) -->
+  <div class="print-exit hidden no-print" id="printExitBar">
+    <button class="btn btn-outline" id="btnExitPrint">Sair do Modo Impressão (A3)</button>
+  </div>
+
+  <div class="app">
+    <header class="topbar no-print" id="topbar">
+      <div class="brand">
+        <div class="brand-title">Calendário Operacional RH</div>
+        <div class="brand-sub">Sonova | Governança operacional com provisão e evidências</div>
+      </div>
+
+      <div class="controls">
+        <div class="control">
+          <label for="yearSelect">Ano</label>
+          <select id="yearSelect"></select>
+        </div>
+        <div class="control">
+          <label for="monthSelect">Mês</label>
+          <select id="monthSelect"></select>
+        </div>
+
+        <div class="btns">
+          <button class="btn" id="btnNewActivity">Nova Atividade</button>
+          <button class="btn btn-outline" id="btnBaseOnline">Base Online</button>
+          <button class="btn btn-outline" id="btnExportTxt">Exportar Base (TXT)</button>
+          <button class="btn btn-outline" id="btnImportTxt">Importar Base (TXT)</button>
+          <button class="btn btn-outline" id="btnImportPrevious">Importar Base Anterior</button>
+          <button class="btn btn-outline" id="btnExportExcel">Exportar para Excel</button>
+          <button class="btn btn-outline" id="btnPrintMode">Modo Impressão (A3)</button>
+          <button class="btn btn-danger" id="btnReset">Resetar Base</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="summary">
+      <div class="summary-left">
+        <div class="kpis">
+          <div class="kpi">
+            <div class="kpi-label">Atividades (mês)</div>
+            <div class="kpi-value" id="kpiTotal">0</div>
+            <div class="kpi-sub" id="kpiTotalSub">Aplicáveis no mês</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Concluídas</div>
+            <div class="kpi-value" id="kpiDone">0</div>
+            <div class="kpi-sub" id="kpiDoneSub">Com check no mês</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Pendentes</div>
+            <div class="kpi-value" id="kpiPending">0</div>
+            <div class="kpi-sub" id="kpiPendingSub">Ainda no prazo</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Vencidas</div>
+            <div class="kpi-value" id="kpiOverdue">0</div>
+            <div class="kpi-sub" id="kpiOverdueSub">Prazo excedido</div>
+          </div>
+        </div>
+
+        <div class="money">
+          <div class="money-card">
+            <div class="money-label">Total Provisionado (mês)</div>
+            <div class="money-value" id="moneyProvisioned">R$ 0,00</div>
+          </div>
+          <div class="money-card">
+            <div class="money-label">Total Executado (mês)</div>
+            <div class="money-value" id="moneyExecuted">R$ 0,00</div>
+          </div>
+          <div class="money-card">
+            <div class="money-label">Gap</div>
+            <div class="money-value" id="moneyGap">R$ 0,00</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="summary-right">
+        <div class="chart-card">
+          <div class="chart-title">Provisionado x Executado (mês)</div>
+          <canvas id="summaryChart" width="520" height="180"></canvas>
+          <div class="chart-footnote">Impressão A3: números permanecem legíveis mesmo em PB.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="filters no-print" id="filtersBar">
+      <div class="filter-group">
+        <div class="filter">
+          <label for="filterCategory">Categoria</label>
+          <select id="filterCategory">
+            <option value="">Todas</option>
+          </select>
+        </div>
+        <div class="filter">
+          <label for="filterOwner">Responsável</label>
+          <input id="filterOwner" type="text" placeholder="Filtrar por responsável" />
+        </div>
+        <div class="filter">
+          <label for="filterSupplier">Fornecedor</label>
+          <input id="filterSupplier" type="text" placeholder="Filtrar por fornecedor" />
+        </div>
+        <div class="filter">
+          <label for="filterPeriod">Periodicidade</label>
+          <select id="filterPeriod">
+            <option value="">Todas</option>
+            <option value="Mensal">Mensal</option>
+            <option value="Anual">Anual</option>
+            <option value="Eventual">Eventual</option>
+          </select>
+        </div>
+        <div class="filter">
+          <label for="filterText">Busca</label>
+          <input id="filterText" type="text" placeholder="Buscar em atividade/observações" />
+        </div>
+
+        <div class="filter toggles">
+          <label class="checkline">
+            <input type="checkbox" id="toggleOnlyPending" />
+            <span>Somente pendentes/vencidas</span>
+          </label>
+          <label class="checkline">
+            <input type="checkbox" id="toggleOnlyApplicable" checked />
+            <span>Somente aplicáveis no mês</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><span class="swatch sw-ok"></span>Concluído</div>
+        <div class="legend-item"><span class="swatch sw-over"></span>Vencido</div>
+        <div class="legend-item"><span class="swatch sw-gap"></span>Lacuna (mês anterior não concluído)</div>
+        <div class="legend-item"><span class="swatch sw-na"></span>Não aplicável (anual fora do mês-alvo)</div>
+        <div class="legend-item"><span class="tag tag-p">P</span>Evidência Pipefy</div>
+        <div class="legend-item"><span class="tag tag-s">S</span>Evidência SSA</div>
+      </div>
+    </section>
+
+    <main class="table-wrap">
+      <div class="table-scroll" id="tableScroll">
+        <table class="grid" id="gridTable">
+          <thead id="gridHead"></thead>
+          <tbody id="gridBody"></tbody>
+        </table>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="muted">Uso interno Sonova. Dados salvos localmente no navegador. Exportar TXT para backup/compartilhamento.</div>
+      <div class="muted">Igarapé Digital - by Anderson Marinho</div>
+    </footer>
+  </div>
+
+  <input type="file" id="fileImportTxt" accept=".txt,text/plain,application/json" class="hidden" />
+  <input type="file" id="fileImportPrevious" accept=".txt,text/plain,application/json" class="hidden" />
+
+  <!-- Modal: Nova/Editar Atividade -->
+  <div class="modal hidden" id="modalActivity">
+    <div class="modal-backdrop" data-close="modalActivity"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalActivityTitle">
+      <div class="modal-header">
+        <div class="modal-title" id="modalActivityTitle">Nova Atividade</div>
+        <button class="btn btn-outline btn-sm" data-close="modalActivity">Fechar</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Categoria</label>
+            <input id="actCategory" type="text" placeholder="Ex: Benefícios" />
+          </div>
+          <div class="form-row span2">
+            <label>Atividade</label>
+            <input id="actTitle" type="text" placeholder="Ex: Conferência fatura Saúde" />
+          </div>
+          <div class="form-row">
+            <label>Responsável</label>
+            <input id="actOwner" type="text" placeholder="Ex: RH/Financeiro" />
+          </div>
+          <div class="form-row">
+            <label>Fornecedor</label>
+            <input id="actSupplier" type="text" placeholder="Ex: SulAmérica" />
+          </div>
+          <div class="form-row">
+            <label>Periodicidade</label>
+            <select id="actPeriod">
+              <option value="Mensal">Mensal</option>
+              <option value="Anual">Anual</option>
+              <option value="Eventual">Eventual</option>
+            </select>
+          </div>
+
+          <div class="form-row span2">
+            <label>Regra de Prazo</label>
+            <div class="inline">
+              <select id="actDueType">
+                <option value="none">Sem prazo</option>
+                <option value="monthlyDay">Dia do mês</option>
+                <option value="annualMonthDay">Mês + dia (anual)</option>
+              </select>
+              <input id="actDueDay" type="number" min="1" max="31" placeholder="Dia" />
+              <select id="actDueMonth">
+                <option value="0">Jan</option><option value="1">Fev</option><option value="2">Mar</option><option value="3">Abr</option>
+                <option value="4">Mai</option><option value="5">Jun</option><option value="6">Jul</option><option value="7">Ago</option>
+                <option value="8">Set</option><option value="9">Out</option><option value="10">Nov</option><option value="11">Dez</option>
+              </select>
+            </div>
+            <div class="hint">Mensal: selecione “Dia do mês”. Anual: selecione “Mês + dia”. Eventual: normalmente “Sem prazo”.</div>
+          </div>
+
+          <div class="form-row span2">
+            <label>Observações</label>
+            <textarea id="actNotes" rows="3" placeholder="Observações gerais da atividade"></textarea>
+          </div>
+
+          <div class="form-row span2">
+            <label>Evidências obrigatórias</label>
+            <div class="checks">
+              <label class="checkline">
+                <input type="checkbox" id="actReqPipefy" />
+                <span>Exige Pipefy</span>
+              </label>
+              <label class="checkline">
+                <input type="checkbox" id="actReqSSA" />
+                <span>Exige SSA</span>
+              </label>
+              <label class="checkline">
+                <input type="checkbox" id="actActive" checked />
+                <span>Ativa</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-row span2 hidden" id="actIdRow">
+            <label>ID Interno</label>
+            <input id="actId" type="text" readonly />
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="btnDeleteActivity">Excluir</button>
+        <div class="spacer"></div>
+        <button class="btn btn-outline" data-close="modalActivity">Cancelar</button>
+        <button class="btn" id="btnSaveActivity">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Editar Célula (mês) -->
+  <div class="modal hidden" id="modalCell">
+    <div class="modal-backdrop" data-close="modalCell"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalCellTitle">
+      <div class="modal-header">
+        <div class="modal-title" id="modalCellTitle">Detalhe do Mês</div>
+        <button class="btn btn-outline btn-sm" data-close="modalCell">Fechar</button>
+      </div>
+      <div class="modal-body">
+        <div class="cell-meta" id="cellMeta"></div>
+
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Status</label>
+            <label class="checkline">
+              <input type="checkbox" id="cellDone" />
+              <span>Concluído</span>
+            </label>
+            <div class="hint" id="cellDoneHint"></div>
+          </div>
+
+<div class="form-row">
+  <label>Valor Provisionado (R$)</label>
+  <input id="cellProvisioned" type="text" placeholder="Ex: 5500,00" />
+  <div class="hint">Estimativa/Provisão do mês (pode existir sem check).</div>
+</div>
+
+<div class="form-row">
+  <label>Valor Executado (R$)</label>
+  <input id="cellExecuted" type="text" placeholder="Ex: 5450,00" />
+  <div class="hint">Opcional. Se vazio e marcado como concluído, o sistema assume o provisionado como executado.</div>
+</div>
+
+
+          <div class="form-row span2">
+            <label>Observação do mês</label>
+            <textarea id="cellNote" rows="3" placeholder="Ex: NF não chegou; provisão lançada"></textarea>
+          </div>
+
+          <div class="form-row">
+            <label>Evidência Pipefy</label>
+            <input id="cellPipefy" type="text" placeholder="Ex: Pipefy #12345 (opcional)" />
+          </div>
+
+          <div class="form-row">
+            <label>Evidência SSA</label>
+            <input id="cellSSA" type="text" placeholder="Ex: SSA INC/IT/Chamado (opcional)" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" data-close="modalCell">Cancelar</button>
+        <button class="btn" id="btnSaveCell">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Follow-up -->
+  <div class="modal hidden" id="modalFollow">
+    <div class="modal-backdrop" data-close="modalFollow"></div>
+    <div class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="modalFollowTitle">
+      <div class="modal-header">
+        <div class="modal-title" id="modalFollowTitle">Follow-up</div>
+        <button class="btn btn-outline btn-sm" data-close="modalFollow">Fechar</button>
+      </div>
+      <div class="modal-body">
+        <div class="cell-meta" id="followMeta"></div>
+
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Tipo</label>
+            <select id="followType">
+              <option value="Cobrança fornecedor">Cobrança fornecedor</option>
+              <option value="Cobrança interno">Cobrança interno</option>
+              <option value="Reenvio">Reenvio</option>
+              <option value="Divergência">Divergência</option>
+              <option value="Pendência NF">Pendência NF</option>
+              <option value="Outro">Outro</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label>Próxima ação</label>
+            <input id="followNextAction" type="text" placeholder="Ex: Reforçar com fornecedor; escalar para gestão" />
+          </div>
+
+          <div class="form-row">
+            <label>Data próxima ação</label>
+            <input id="followNextDate" type="date" />
+          </div>
+
+          <div class="form-row span2">
+            <label>O que houve (registro)</label>
+            <textarea id="followText" rows="4" placeholder="Descreva a ocorrência e o follow-up"></textarea>
+          </div>
+        </div>
+
+        <div class="follow-actions">
+          <button class="btn btn-outline" id="btnCopyEmail">Copiar para e-mail</button>
+          <div class="hint" id="copyHint"></div>
+        </div>
+
+        <div class="follow-history">
+          <div class="section-title">Histórico</div>
+          <div id="followHistory"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-outline" data-close="modalFollow">Cancelar</button>
+        <button class="btn" id="btnSaveFollow">Salvar Follow-up</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Base Online -->
+  <div class="modal hidden" id="modalBaseOnline">
+    <div class="modal-backdrop" data-close="modalBaseOnline"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalBaseOnlineTitle">
+      <div class="modal-header">
+        <div class="modal-title" id="modalBaseOnlineTitle">Base Online</div>
+        <button class="btn btn-outline btn-sm" data-close="modalBaseOnline">Fechar</button>
+      </div>
+      <div class="modal-body">
+        <div class="hint">
+          Base Online é o nome do arquivo TXT “oficial” do projeto (ex: no GitHub/SharePoint/Drive).
+          O sistema sempre salva no localStorage. Para compartilhar, exporte TXT e substitua o arquivo oficial no projeto.
+        </div>
+
+        <div class="form-grid">
+          <div class="form-row span2">
+            <label>Nome do arquivo oficial</label>
+            <input id="baseOnlineName" type="text" placeholder="Ex: calendario_rh_sonova_oficial.txt" />
+          </div>
+
+          <div class="form-row span2">
+            <label>Colar conteúdo TXT (opcional)</label>
+            <textarea id="baseOnlinePaste" rows="6" placeholder="Cole aqui o conteúdo do TXT exportado, se quiser carregar a base oficial"></textarea>
+            <div class="hint">Se colar e carregar, substitui sua base atual.</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="btnCopyBaseOnlineHint">Copiar instruções</button>
+        <div class="spacer"></div>
+        <button class="btn btn-outline" data-close="modalBaseOnline">Cancelar</button>
+        <button class="btn btn-outline" id="btnLoadPastedBase">Carregar TXT colado</button>
+        <button class="btn" id="btnSaveBaseOnlineName">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Importar Base Anterior -->
+  <div class="modal hidden" id="modalImportPrevious">
+    <div class="modal-backdrop" data-close="modalImportPrevious"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalImportPreviousTitle">
+      <div class="modal-header">
+        <div class="modal-title" id="modalImportPreviousTitle">Importar Base Anterior</div>
+        <button class="btn btn-outline btn-sm" data-close="modalImportPrevious">Fechar</button>
+      </div>
+      <div class="modal-body">
+        <div class="hint">Escolha como reutilizar a base anterior:</div>
+        <div class="radio-list">
+          <label class="checkline">
+            <input type="radio" name="prevMode" value="structure" checked />
+            <span>Trazer só estrutura das atividades (sem checks/valores/follow-ups)</span>
+          </label>
+          <label class="checkline">
+            <input type="radio" name="prevMode" value="structurePlusValues" />
+            <span>Trazer estrutura + valores do mês selecionado (zera checks)</span>
+          </label>
+          <label class="checkline">
+            <input type="radio" name="prevMode" value="archiveAll" />
+            <span>Trazer tudo como histórico arquivado (somente leitura no histórico)</span>
+          </label>
+        </div>
+
+        <div class="hint">
+          Após escolher, selecione o arquivo TXT antigo. O sistema valida o conteúdo antes de aplicar.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" data-close="modalImportPrevious">Cancelar</button>
+        <button class="btn" id="btnPickPreviousFile">Selecionar TXT</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
