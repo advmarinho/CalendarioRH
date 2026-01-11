@@ -77,6 +77,271 @@
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   }
 
+// === Linhas de Provisão/Pagamento + Ordenação por Prazo ===
+function normalizeEntryLines(entry) {
+  if (!entry) return;
+
+  if (!Array.isArray(entry.provisions)) entry.provisions = [];
+  if (!Array.isArray(entry.payments)) entry.payments = [];
+
+  // Backward compatibility: older fields -> seed arrays once
+  const prov = entryProvisioned(entry);
+  const exec = Number(entry.executed);
+
+  if (entry.provisions.length === 0 && Number.isFinite(prov) && prov > 0) {
+    entry.provisions.push({ amount: prov, note: "" });
+  }
+
+  if (entry.payments.length === 0 && Number.isFinite(exec) && exec > 0) {
+    entry.payments.push({ amount: exec, note: "" });
+  }
+}
+
+function ensureCellLinesWrap() {
+  const modal = $("modalCell");
+  if (!modal) return null;
+
+  let wrap = $("cellLinesWrap");
+  if (wrap) return wrap;
+
+  // Place right after the executed field if it exists, otherwise at end of form-grid
+  const grid = modal.querySelector(".form-grid");
+  if (!grid) return null;
+
+  wrap = document.createElement("div");
+  wrap.id = "cellLinesWrap";
+  wrap.className = "form-row span2";
+  wrap.style.marginTop = "4px";
+
+  grid.appendChild(wrap);
+  return wrap;
+}
+
+function escapeHtml(s) {
+  const str = safeText(s);
+  return str.replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+}
+
+function formatBRNumberInput(n) {
+  if (!Number.isFinite(n)) return "";
+  // keep 2 decimals when needed
+  const s = (Math.round(n * 100) / 100).toString();
+  return s.replace(".", ",");
+}
+
+function renderLinesSection(title, lines, kind) {
+  const rows = Array.isArray(lines) ? lines : [];
+  const idList = (kind === "prov") ? "cellProvLines" : "cellPayLines";
+  const idTotal = (kind === "prov") ? "cellProvTotal" : "cellPayTotal";
+  const idBtn = (kind === "prov") ? "btnAddProvLine" : "btnAddPayLine";
+
+  const htmlRows = rows.map((ln, idx) => {
+    const v = Number(ln?.amount);
+    const note = safeText(ln?.note);
+    return `
+      <div class="line-row" data-kind="${kind}" data-idx="${idx}">
+        <input class="line-amount" type="text" value="${formatBRNumberInput(v)}" placeholder="0,00" />
+        <input class="line-note" type="text" value="${escapeHtml(note)}" placeholder="Descrição (opcional)" />
+        <button class="btn btn-outline btn-sm line-del" type="button">Remover</button>
+      </div>`;
+  }).join("");
+
+  return `
+    <div class="lines-card" data-kind="${kind}">
+      <div class="lines-head">
+        <div class="lines-title">${escapeHtml(title)}</div>
+        <div class="lines-actions">
+          <button class="btn btn-outline btn-sm" id="${idBtn}" type="button">Adicionar linha</button>
+        </div>
+      </div>
+
+      <div class="lines-table" id="${idList}">
+        <div class="line-row line-row-head">
+          <div class="line-h">Valor (R$)</div>
+          <div class="line-h">Descrição</div>
+          <div class="line-h"></div>
+        </div>
+        ${htmlRows || `<div class="muted" style="font-size:12px;padding:6px 2px;">Sem linhas lançadas.</div>`}
+      </div>
+
+      <div class="lines-foot">
+        <div class="muted" style="font-size:12px;">Total</div>
+        <div class="lines-total" id="${idTotal}">R$ 0</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCellLinesUI(entry) {
+  normalizeEntryLines(entry);
+
+  // Hide the single inputs (keeps HTML compatibility)
+  const elProv = $("cellProvisioned");
+  const elExec = $("cellExecuted");
+  if (elProv && elProv.closest(".form-row")) elProv.closest(".form-row").style.display = "none";
+  if (elExec && elExec.closest(".form-row")) elExec.closest(".form-row").style.display = "none";
+
+  const wrap = ensureCellLinesWrap();
+  if (!wrap) return;
+
+  // Minimal inline styles for layout, without touching styles.css
+  wrap.innerHTML = `
+    <div style="display:grid;gap:10px;">
+      ${renderLinesSection("Provisões (planejado)", entry.provisions, "prov")}
+      ${renderLinesSection("Pagamentos (executado)", entry.payments, "pay")}
+      <div class="hint" style="margin-top:-4px;">
+        Dica: use múltiplas linhas quando houver complementos, ajustes, parcelas ou pagamentos separados.
+        O cartão do mês usa o total das provisões e dos pagamentos.
+      </div>
+    </div>
+  `;
+
+  // Wire buttons + delegation
+  const btnProv = $("btnAddProvLine");
+  const btnPay = $("btnAddPayLine");
+
+  if (btnProv) {
+    btnProv.onclick = () => {
+      entry.provisions.push({ amount: null, note: "" });
+      renderCellLinesUI(entry);
+      updateCellLinesTotals(entry);
+    };
+  }
+  if (btnPay) {
+    btnPay.onclick = () => {
+      entry.payments.push({ amount: null, note: "" });
+      renderCellLinesUI(entry);
+      updateCellLinesTotals(entry);
+    };
+  }
+
+  wrap.onclick = (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLElement)) return;
+    if (!t.classList.contains("line-del")) return;
+
+    const row = t.closest(".line-row");
+    if (!row) return;
+
+    const kind = row.getAttribute("data-kind");
+    const idx = Number(row.getAttribute("data-idx"));
+    if (!Number.isFinite(idx) || idx < 0) return;
+
+    if (kind === "prov") {
+      entry.provisions.splice(idx, 1);
+    } else if (kind === "pay") {
+      entry.payments.splice(idx, 1);
+    }
+    renderCellLinesUI(entry);
+    updateCellLinesTotals(entry);
+  };
+
+  wrap.oninput = () => {
+    // live update totals (without saving)
+    syncEntryLinesFromUI(entry);
+    updateCellLinesTotals(entry);
+  };
+
+  updateCellLinesTotals(entry);
+}
+
+function syncEntryLinesFromUI(entry) {
+  const wrap = $("cellLinesWrap");
+  if (!wrap) return;
+
+  const provRows = wrap.querySelectorAll('.line-row[data-kind="prov"]');
+  const payRows = wrap.querySelectorAll('.line-row[data-kind="pay"]');
+
+  const prov = [];
+  provRows.forEach(r => {
+    const amountEl = r.querySelector(".line-amount");
+    const noteEl = r.querySelector(".line-note");
+    const amount = parseBRNumber(amountEl ? amountEl.value : "");
+    const note = safeText(noteEl ? noteEl.value : "").trim();
+    if (amount != null && amount >= 0) prov.push({ amount, note });
+    else if (note) prov.push({ amount: null, note });
+  });
+
+  const pay = [];
+  payRows.forEach(r => {
+    const amountEl = r.querySelector(".line-amount");
+    const noteEl = r.querySelector(".line-note");
+    const amount = parseBRNumber(amountEl ? amountEl.value : "");
+    const note = safeText(noteEl ? noteEl.value : "").trim();
+    if (amount != null && amount >= 0) pay.push({ amount, note });
+    else if (note) pay.push({ amount: null, note });
+  });
+
+  entry.provisions = prov;
+  entry.payments = pay;
+
+  // keep totals in legacy fields
+  entry.provisioned = sumLines(entry.provisions);
+  entry.executed = sumLines(entry.payments);
+  entry.value = entry.provisioned;
+}
+
+function sumLines(lines) {
+  if (!Array.isArray(lines)) return 0;
+  return lines.reduce((acc, it) => {
+    const v = Number(it?.amount);
+    return acc + (Number.isFinite(v) ? v : 0);
+  }, 0);
+}
+
+function updateCellLinesTotals(entry) {
+  const p = sumLines(entry.provisions);
+  const e = sumLines(entry.payments);
+
+  const elP = $("cellProvTotal");
+  const elE = $("cellPayTotal");
+  if (elP) elP.textContent = formatBRL(p);
+  if (elE) elE.textContent = formatBRL(e);
+}
+
+function propagateNextMonths(activity, year, month, baseProvisioned, monthsAhead = 6) {
+  if (!Number.isFinite(baseProvisioned) || baseProvisioned <= 0) return;
+
+  for (let i = 1; i <= monthsAhead; i++) {
+    const m = month + i;
+    const y = year + Math.floor(m / 12);
+    const mm = m % 12;
+
+    const e = getEntry(activity, y, mm);
+
+    const curProv = entryProvisioned(e);
+    if (!Number.isFinite(curProv) || curProv === 0) {
+      // also keep arrays for new model
+      if (!Array.isArray(e.provisions)) e.provisions = [];
+      if (e.provisions.length === 0) e.provisions.push({ amount: baseProvisioned, note: "" });
+      e.provisioned = baseProvisioned;
+      e.value = baseProvisioned;
+    }
+  }
+}
+
+function sortActivitiesByDueDate() {
+  const year = state.year;
+  const month = state.month;
+
+  state.activities.sort((a, b) => {
+    const da = getDueDate(a, year, month);
+    const db = getDueDate(b, year, month);
+
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+
+    return da.getTime() - db.getTime();
+  });
+}
+
+
+
   function abbrBRL(value) {
     const v = Number(value);
     if (!Number.isFinite(v) || v === 0) return "—";
@@ -617,6 +882,7 @@ mkActivity("Benefícios", "Conferência Sonova Cuida", "RH/Financeiro", "Wellhub
   }
 
   function renderGrid() {
+    sortActivitiesByDueDate();
     const head = $("gridHead");
     const body = $("gridBody");
 
@@ -1028,6 +1294,8 @@ mkActivity("Benefícios", "Conferência Sonova Cuida", "RH/Financeiro", "Wellhub
     $("cellPipefy").value = safeText(entry?.evidence?.pipefy);
     $("cellSSA").value = safeText(entry?.evidence?.ssa);
 
+    renderCellLinesUI(entry);
+
     openModal("modalCell");
   }
 
@@ -1046,29 +1314,68 @@ mkActivity("Benefícios", "Conferência Sonova Cuida", "RH/Financeiro", "Wellhub
     if (done && !prevDone) entry.doneAt = nowISO();
     if (!done) entry.doneAt = "";
 
-    const elProv = $("cellProvisioned");
-    const elExec = $("cellExecuted");
-    const elOld = $("cellValue");
 
-    if (elProv || elExec) {
-      const p = parseBRNumber(elProv ? elProv.value : "");
-      const ex = parseBRNumber(elExec ? elExec.value : "");
+    const hasLinesUI = !!$("cellLinesWrap");
 
-      entry.provisioned = (p != null && p >= 0) ? p : null;
-      entry.executed = (ex != null && ex >= 0) ? ex : null;
+    if (hasLinesUI) {
+      // Novo modelo: múltiplas linhas (provisões/pagamentos)
+      syncEntryLinesFromUI(entry);
+    } else {
+      // Compatibilidade: um ou dois campos (provisionado/executado)
+      const elProv = $("cellProvisioned");
+      const elExec = $("cellExecuted");
+      const elOld = $("cellValue");
 
-      // compatibilidade antiga: value = provisionado
-      entry.value = entry.provisioned;
+      if (elProv || elExec) {
+        const p = parseBRNumber(elProv ? elProv.value : "");
+        const ex = parseBRNumber(elExec ? elExec.value : "");
 
-    } else if (elOld) {
-      // HTML antigo: um campo só (provisão)
-      const val = parseBRNumber(elOld.value);
-      entry.value = (val != null && val >= 0) ? val : null;
-      entry.provisioned = entry.value;
-      entry.executed = null;
+        entry.provisioned = (p != null && p >= 0) ? p : null;
+        entry.executed = (ex != null && ex >= 0) ? ex : null;
+
+        // compatibilidade antiga: value = provisionado
+        entry.value = entry.provisioned;
+
+        // sementes para arrays (para transição suave)
+        if (!Array.isArray(entry.provisions)) entry.provisions = [];
+        if (!Array.isArray(entry.payments)) entry.payments = [];
+        if (entry.provisions.length === 0 && Number.isFinite(Number(entry.provisioned)) && Number(entry.provisioned) > 0) {
+          entry.provisions.push({ amount: Number(entry.provisioned), note: "" });
+        }
+        if (entry.payments.length === 0 && Number.isFinite(Number(entry.executed)) && Number(entry.executed) > 0) {
+          entry.payments.push({ amount: Number(entry.executed), note: "" });
+        }
+
+      } else if (elOld) {
+        // HTML antigo: um campo só (provisão)
+        const val = parseBRNumber(elOld.value);
+        entry.value = (val != null && val >= 0) ? val : null;
+        entry.provisioned = entry.value;
+        entry.executed = null;
+
+        if (!Array.isArray(entry.provisions)) entry.provisions = [];
+        if (entry.provisions.length === 0 && Number.isFinite(Number(entry.provisioned)) && Number(entry.provisioned) > 0) {
+          entry.provisions.push({ amount: Number(entry.provisioned), note: "" });
+        }
+        if (!Array.isArray(entry.payments)) entry.payments = [];
+      }
+    }
+
+    // Regra: se marcou concluído e não informou executado/pagamentos, assume executado = provisionado
+    const pTotal = entryProvisioned(entry);
+    const eTotal = Number(entry.executed);
+    const hasETotal = Number.isFinite(eTotal) && eTotal > 0;
+
+    if (done && (!hasETotal) && Number.isFinite(pTotal) && pTotal > 0) {
+      entry.executed = pTotal;
+      if (!Array.isArray(entry.payments)) entry.payments = [];
+      if (entry.payments.length === 0) entry.payments.push({ amount: pTotal, note: "Auto (Concluído)" });
     }
 
     entry.note = safeText($("cellNote").value).trim();
+    // Replica provisão para próximos meses (6) sem sobrescrever meses já preenchidos
+    propagateNextMonths(a, ctx.year, ctx.month, entryProvisioned(entry), 6);
+
     entry.evidence = {
       pipefy: safeText($("cellPipefy").value).trim(),
       ssa: safeText($("cellSSA").value).trim()
