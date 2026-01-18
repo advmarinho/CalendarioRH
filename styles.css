@@ -592,6 +592,28 @@ body{
   background: #fff;
 }
 
+/* ============================================================
+   Correção: modais longos (ex.: Follow-up) precisam rolagem
+   para não “sumir” o botão Salvar fora da tela.
+   Mantém header/footer fixos e cria scroll apenas no corpo.
+   ============================================================ */
+
+.modal-card{
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header,
+.modal-footer{
+  flex: 0 0 auto;
+}
+
+.modal-body{
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
 .form-grid{
   display:grid;
   grid-template-columns: 1fr 1fr;
